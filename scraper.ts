@@ -354,15 +354,28 @@ function getLeftText(elements: Element[], topRightText: string, leftText: string
 // Gets the text downwards in a rectangle, where the rectangle is delineated by the positions in
 // which the three specified strings of (case sensitive) text are found.
 
-function getDownText(elements: Element[], topText: string, rightText: string, bottomText: string) {
+function getDownText(elements: Element[], topText: string, rightText: string, bottomText: string, optionalBottomText: string) {
     // Construct a bounding rectangle in which the expected text should appear.  Any elements
     // over 50% within the bounding rectangle will be assumed to be part of the expected text.
 
     let topElement = findElement(elements, topText, true);
     let rightElement = (rightText === undefined) ? undefined : findElement(elements, rightText, false);
     let bottomElement = (bottomText === undefined) ? undefined: findElement(elements, bottomText, false);
+    let optionalBottomElement = (optionalBottomText === undefined) ? undefined: findElement(elements, optionalBottomText, false);
     if (topElement === undefined)
         return undefined;
+    
+    // The optional bottom element corresponds to a page footer which could appear at any point.
+    // If it appears higher then the topText then it should be ignored, otherwise, if it appears
+    // lower then the topText then it should be used as the bottommost element (no elements below
+    // this element should be extracted).  So it is in this sense that it is "optional".
+
+    if (optionalBottomElement !== undefined) {
+        if (optionalBottomElement.y + optionalBottomElement.height < topElement.y)
+            optionalBottomElement = undefined;  // ignore the optional bottom text
+        else
+            bottomElement = optionalBottomElement;
+    }
 
     let x = topElement.x;
     let y = topElement.y + topElement.height;
@@ -399,7 +412,7 @@ function getDownText(elements: Element[], topText: string, rightText: string, bo
 function parseApplicationElements(elements: Element[], startElement: Element, informationUrl: string) {
     // Get the application number.
 
-    let applicationNumber = getDownText(elements, "Document", "Applicant Name/", "Officer");
+    let applicationNumber = getDownText(elements, "Document", "Applicant Name/", "Wall Type:", undefined);
     if (applicationNumber === undefined || applicationNumber === "") {
         let elementSummary = elements.map(element => `[${element.text}]`).join("");
         console.log(`Could not find the application number on the PDF page for the current development application.  The development application will be ignored.  Elements: ${elementSummary}`);
@@ -407,9 +420,12 @@ function parseApplicationElements(elements: Element[], startElement: Element, in
     }
     console.log(`    Found \"${applicationNumber}\".`);
 
+if (applicationNumber === "21/2014/56"){
+    let iiii = 1;
+}
     // Get the address.
 
-    let address = getDownText(elements, "Property Details", undefined, undefined);
+    let address = getDownText(elements, "Property Details", undefined, undefined, "Page:");
     if (address === undefined)
     {
         let elementSummary = elements.map(element => `[${element.text}]`).join("");
@@ -420,7 +436,7 @@ function parseApplicationElements(elements: Element[], startElement: Element, in
     // Get the received date.
 
     let receivedDate: moment.Moment = undefined;
-    let receivedDateText = getDownText(elements, "Received", "Final", undefined);
+    let receivedDateText = getDownText(elements, "Received", "Final", undefined, "Page:");
     if (receivedDateText !== undefined)
         receivedDate = moment(receivedDateText.trim(), "D/MM/YYYY", true);
 
@@ -458,6 +474,8 @@ async function parsePdf(url: string) {
     // memory usage by the PDF (just calling page._destroy() on each iteration of the loop appears
     // not to be enough to release all memory used by the PDF parsing).
 
+    let elements: Element[] = [];
+    let pageVerticalOffset = 0;
     for (let pageIndex = 0; pageIndex < 500; pageIndex++) {  // limit to an arbitrarily large number of pages (to avoid any chance of an infinite loop)
         let pdf = await pdfjs.getDocument({ data: buffer, disableFontFace: true, ignoreErrors: true });
         if (pageIndex >= pdf.numPages)
@@ -468,7 +486,7 @@ async function parsePdf(url: string) {
         let textContent = await page.getTextContent();
         let viewport = await page.getViewport(1.0);
     
-        let elements: Element[] = textContent.items.map(item => {
+        let pageElements: Element[] = textContent.items.map(item => {
             let transform = pdfjs.Util.transform(viewport.transform, item.transform);
     
             // Work around the issue https://github.com/mozilla/pdf.js/issues/8276 (heights are
@@ -490,48 +508,61 @@ async function parsePdf(url: string) {
         // Sort the elements by Y co-ordinate and then by X co-ordinate.
 
         let elementComparer = (a, b) => (a.y > b.y) ? 1 : ((a.y < b.y) ? -1 : ((a.x > b.x) ? 1 : ((a.x < b.x) ? -1 : 0)));
-        elements.sort(elementComparer);
+        pageElements.sort(elementComparer);
 
-        // Group the elements into sections based on where the "Application No" text starts.
+        // Ensure that elements on subsequent pages have lower Y co-ordinates than elements on
+        // earlier pages.
 
-        let applicationElementGroups = [];
-        let startElements = findStartElements(elements);
-        for (let index = 0; index < startElements.length; index++) {
-            // Determine the highest Y co-ordinate of this row and the next row (or the bottom of
-            // the current page).  Allow some leeway vertically (add some extra height) because
-            // in some cases the lodged date might be higher up than the "Application No" text.
-            
-            let startElement = startElements[index];
-            let raisedStartElement: Element = {
-                text: startElement.text,
-                x: startElement.x,
-                y: startElement.y - startElement.height / 2,  // leeway
-                width: startElement.width,
-                height: startElement.height };
-            let rowTop = getRowTop(elements, raisedStartElement);
-            let nextRowTop = (index + 1 < startElements.length) ? getRowTop(elements, startElements[index + 1]) : Number.MAX_VALUE;
+        let lowestPageElement = pageElements.reduce(((previous, current) => (previous === undefined || current.y + current.height > previous.y + previous.height) ? current : previous), undefined);
+        let lowestPageElementY = lowestPageElement.y + lowestPageElement.height;
 
-            // Extract all elements between the two rows.
+        for (let pageElement of pageElements)
+            pageElement.y += pageVerticalOffset;
 
-            applicationElementGroups.push({ startElement: startElements[index], elements: elements.filter(element => element.y >= rowTop && element.y + element.height < nextRowTop) });
-        }
+        pageVerticalOffset += lowestPageElementY + Tolerance;
 
-        // Parse the development application from each group of elements (ie. a section of the
-        // current page of the PDF document).  If the same application number is encountered a
-        // second time in the same document then this likely indicates the parsing has incorrectly
-        // recognised some of the digits in the application number.  In this case add a suffix to
-        // the application number so it is unique (and so will be inserted into the database later
-        // instead of being ignored).
+        elements = elements.concat(pageElements);
+    }
 
-        for (let applicationElementGroup of applicationElementGroups) {
-            let developmentApplication = parseApplicationElements(applicationElementGroup.elements, applicationElementGroup.startElement, url);
-            if (developmentApplication !== undefined) {
-                let suffix = 0;
-                let applicationNumber = developmentApplication.applicationNumber;
-                while (developmentApplications.some(otherDevelopmentApplication => otherDevelopmentApplication.applicationNumber === developmentApplication.applicationNumber))
-                    developmentApplication.applicationNumber = `${applicationNumber} (${++suffix})`;  // add a unique suffix
-                developmentApplications.push(developmentApplication);
-            }
+    // Group the elements into sections based on where the "Application No" text starts.
+
+    let applicationElementGroups = [];
+    let startElements = findStartElements(elements);
+    for (let index = 0; index < startElements.length; index++) {
+        // Determine the highest Y co-ordinate of this row and the next row (or the bottom of
+        // the current page).  Allow some leeway vertically (add some extra height) because
+        // in some cases the lodged date might be higher up than the "Application No" text.
+        
+        let startElement = startElements[index];
+        let raisedStartElement: Element = {
+            text: startElement.text,
+            x: startElement.x,
+            y: startElement.y - startElement.height / 2,  // leeway
+            width: startElement.width,
+            height: startElement.height };
+        let rowTop = getRowTop(elements, raisedStartElement);
+        let nextRowTop = (index + 1 < startElements.length) ? getRowTop(elements, startElements[index + 1]) : Number.MAX_VALUE;
+
+        // Extract all elements between the two rows.
+
+        applicationElementGroups.push({ startElement: startElements[index], elements: elements.filter(element => element.y >= rowTop && element.y + element.height < nextRowTop) });
+    }
+
+    // Parse the development application from each group of elements (ie. a section of the
+    // current page of the PDF document).  If the same application number is encountered a
+    // second time in the same document then this likely indicates the parsing has incorrectly
+    // recognised some of the digits in the application number.  In this case add a suffix to
+    // the application number so it is unique (and so will be inserted into the database later
+    // instead of being ignored).
+
+    for (let applicationElementGroup of applicationElementGroups) {
+        let developmentApplication = parseApplicationElements(applicationElementGroup.elements, applicationElementGroup.startElement, url);
+        if (developmentApplication !== undefined) {
+            let suffix = 0;
+            let applicationNumber = developmentApplication.applicationNumber;
+            while (developmentApplications.some(otherDevelopmentApplication => otherDevelopmentApplication.applicationNumber === developmentApplication.applicationNumber))
+                developmentApplication.applicationNumber = `${applicationNumber} (${++suffix})`;  // add a unique suffix
+            developmentApplications.push(developmentApplication);
         }
     }
 
@@ -613,14 +644,14 @@ async function main() {
     // at once because this may use too much memory, resulting in morph.io terminating the current
     // process).
 
-    let selectedPdfUrls: string[] = [];
-    selectedPdfUrls.push(pdfUrls.shift());
-    if (pdfUrls.length > 0)
-        selectedPdfUrls.push(pdfUrls[getRandom(0, pdfUrls.length)]);
-    if (getRandom(0, 2) === 0)
-        selectedPdfUrls.reverse();
+    // let selectedPdfUrls: string[] = [];
+    // selectedPdfUrls.push(pdfUrls.shift());
+    // if (pdfUrls.length > 0)
+    //     selectedPdfUrls.push(pdfUrls[getRandom(0, pdfUrls.length)]);
+    // if (getRandom(0, 2) === 0)
+    //     selectedPdfUrls.reverse();
 
-    for (let pdfUrl of ["https://www.tumbybay.sa.gov.au/webdata/resources/files/2016%20Website%20Register%20of%20Development%20Application%20Listing-5.pdf"]) {
+    for (let pdfUrl of ["https://www.tumbybay.sa.gov.au/webdata/resources/files/Register%20of%20Development%20Listing%202014.pdf"]) {
         console.log(`Parsing document: ${pdfUrl}`);
         let developmentApplications = await parsePdf(pdfUrl);
         console.log(`Parsed ${developmentApplications.length} development application(s) from document: ${pdfUrl}`);
