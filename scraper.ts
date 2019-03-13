@@ -158,7 +158,7 @@ function getRightElement(elements: Element[], element: Element) {
 
 // Finds the element that most closely matches the specified text.
 
-function findElement(elements: Element[], text: string, shouldSelectRightmostElement: boolean) {
+function findElement(elements: Element[], text: string, shouldSelectRightmostElement: boolean, shouldSelectLastMatch: boolean) {
     // Examine all the elements on the page that being with the same character as the requested
     // text.
     
@@ -204,10 +204,19 @@ function findElement(elements: Element[], text: string, shouldSelectRightmostEle
     // will be searched for relative to this "found" element).
 
     if (matches.length > 0) {
-        let bestMatch = matches.reduce((previous, current) =>
-            (previous === undefined ||
-            current.threshold < previous.threshold ||
-            (current.threshold === previous.threshold && Math.abs(current.text.trim().length - condensedText.length) < Math.abs(previous.text.trim().length - condensedText.length)) ? current : previous), undefined);
+        let bestMatch = undefined;
+
+        if (shouldSelectLastMatch)
+            bestMatch = matches.reduce((previous, current) =>
+                (previous === undefined ||
+                current.threshold <= previous.threshold ||
+                (current.threshold === previous.threshold && Math.abs(current.text.trim().length - condensedText.length) < Math.abs(previous.text.trim().length - condensedText.length)) ? current : previous), undefined);
+        else
+            bestMatch = matches.reduce((previous, current) =>
+                (previous === undefined ||
+                current.threshold < previous.threshold ||
+                (current.threshold === previous.threshold && Math.abs(current.text.trim().length - condensedText.length) < Math.abs(previous.text.trim().length - condensedText.length)) ? current : previous), undefined);
+
         return shouldSelectRightmostElement ? bestMatch.rightElement : bestMatch.leftElement;
     }
 
@@ -216,16 +225,17 @@ function findElement(elements: Element[], text: string, shouldSelectRightmostEle
 
 // Finds the start element of each development application on the current PDF page (there are
 // typically two development applications on a single page and each development application
-// typically begins with the text "Document").
+// typically begins with the text "Building Details").
 
 function findStartElements(elements: Element[]) {
-    // Examine all the elements on the page that being with "D" or "d".
+    // Examine all the elements on the page that being with "B" or "b".
     
     let startElements: Element[] = [];
-    for (let element of elements.filter(element => element.text.trim().toLowerCase().startsWith("d"))) {
-        // Extract up to 3 elements to the right of the element that has text starting with
-        // the letter "d" (and so may be the start of the "Document" text).  Join together the
-        // elements to the right in an attempt to find the best match to the text "Document".
+    for (let element of elements.filter(element => element.text.trim().toLowerCase().startsWith("b"))) {
+        // Extract up to 4 elements to the right of the element that has text starting with
+        // the letter "b" (and so may be the start of the "Building Details" text).  Join
+        // together the elements to the right in an attempt to find the best match to the
+        // text "Building Details".
 
         let rightElement = element;
         let rightElements: Element[] = [];
@@ -235,17 +245,17 @@ function findStartElements(elements: Element[]) {
             rightElements.push(rightElement);
         
             let text = rightElements.map(element => element.text).join("").replace(/[\s,\-_]/g, "").toLowerCase();
-            if (text.length >= 10)  // stop once the text is too long
+            if (text.length >= 17)  // stop once the text is too long
                 break;
-            if (text.length >= 7) {  // ignore until the text is close to long enough
-                if (text === "document")
+            if (text.length >= 13) {  // ignore until the text is close to long enough
+                if (text === "buildingdetails")
                     matches.push({ element: rightElement, threshold: 0, text: text });
-                else if (didYouMean(text, [ "Document" ], { caseSensitive: false, returnType: didyoumean.ReturnTypeEnums.FIRST_CLOSEST_MATCH, thresholdType: didyoumean.ThresholdTypeEnums.EDIT_DISTANCE, threshold: 1, trimSpaces: true }) !== null)
+                else if (didYouMean(text, [ "BuildingDetails" ], { caseSensitive: false, returnType: didyoumean.ReturnTypeEnums.FIRST_CLOSEST_MATCH, thresholdType: didyoumean.ThresholdTypeEnums.EDIT_DISTANCE, threshold: 1, trimSpaces: true }) !== null)
                     matches.push({ element: rightElement, threshold: 1, text: text });
             }
 
             rightElement = getRightElement(elements, rightElement);
-        } while (rightElement !== undefined && rightElements.length < 3);  // up to 3 elements
+        } while (rightElement !== undefined && rightElements.length < 5);  // up to 5 elements
 
         // Chose the best match (if any matches were found).
 
@@ -253,7 +263,7 @@ function findStartElements(elements: Element[]) {
             let bestMatch = matches.reduce((previous, current) =>
                 (previous === undefined ||
                 current.threshold < previous.threshold ||
-                (current.threshold === previous.threshold && Math.abs(current.text.trim().length - "Document".length) < Math.abs(previous.text.trim().length - "Document".length)) ? current : previous), undefined);
+                (current.threshold === previous.threshold && Math.abs(current.text.trim().length - "BuildingDetails".length) < Math.abs(previous.text.trim().length - "BuildingDetails".length)) ? current : previous), undefined);
             startElements.push(bestMatch.element);
         }
     }
@@ -272,9 +282,9 @@ function getRightText(elements: Element[], topLeftText: string, rightText: strin
     // Construct a bounding rectangle in which the expected text should appear.  Any elements
     // over 50% within the bounding rectangle will be assumed to be part of the expected text.
 
-    let topLeftElement = findElement(elements, topLeftText, true);
-    let rightElement = (rightText === undefined) ? undefined : findElement(elements, rightText, false);
-    let bottomElement = (bottomText === undefined) ? undefined : findElement(elements, bottomText, false);
+    let topLeftElement = findElement(elements, topLeftText, true, false);
+    let rightElement = (rightText === undefined) ? undefined : findElement(elements, rightText, false, false);
+    let bottomElement = (bottomText === undefined) ? undefined : findElement(elements, bottomText, false, false);
     if (topLeftElement === undefined)
         return undefined;
 
@@ -315,9 +325,9 @@ function getLeftText(elements: Element[], topRightText: string, leftText: string
     // Construct a bounding rectangle in which the expected text should appear.  Any elements
     // over 50% within the bounding rectangle will be assumed to be part of the expected text.
 
-    let topRightElement = findElement(elements, topRightText, true);
-    let leftElement = (leftText === undefined) ? undefined : findElement(elements, leftText, false);
-    let bottomElement = (bottomText === undefined) ? undefined : findElement(elements, bottomText, false);
+    let topRightElement = findElement(elements, topRightText, true, false);
+    let leftElement = (leftText === undefined) ? undefined : findElement(elements, leftText, false, false);
+    let bottomElement = (bottomText === undefined) ? undefined : findElement(elements, bottomText, false, false);
     if (topRightElement === undefined || leftElement === undefined || bottomElement === undefined)
         return undefined;
 
@@ -354,14 +364,14 @@ function getLeftText(elements: Element[], topRightText: string, leftText: string
 // Gets the text downwards in a rectangle, where the rectangle is delineated by the positions in
 // which the three specified strings of (case sensitive) text are found.
 
-function getDownText(elements: Element[], topText: string, rightText: string, bottomText: string, optionalBottomText: string) {
+function getDownText(elements: Element[], topText: string, shouldSelectLastMatch: boolean, rightText: string, bottomText: string, optionalBottomText: string) {
     // Construct a bounding rectangle in which the expected text should appear.  Any elements
     // over 50% within the bounding rectangle will be assumed to be part of the expected text.
 
-    let topElement = findElement(elements, topText, true);
-    let rightElement = (rightText === undefined) ? undefined : findElement(elements, rightText, false);
-    let bottomElement = (bottomText === undefined) ? undefined: findElement(elements, bottomText, false);
-    let optionalBottomElement = (optionalBottomText === undefined) ? undefined: findElement(elements, optionalBottomText, false);
+    let topElement = findElement(elements, topText, false, shouldSelectLastMatch);
+    let rightElement = (rightText === undefined) ? undefined : findElement(elements, rightText, false, false);
+    let bottomElement = (bottomText === undefined) ? undefined : findElement(elements, bottomText, false, false);
+    let optionalBottomElement = (optionalBottomText === undefined) ? undefined : findElement(elements, optionalBottomText, false, true);  // select the last match because there may be multiple page breaks containing the text "Page:"
     if (topElement === undefined)
         return undefined;
     
@@ -384,14 +394,22 @@ function getDownText(elements: Element[], topText: string, rightText: string, bo
 
     let bounds: Rectangle = { x: x, y: y, width: width, height: height };
 
-    // Gather together all elements that are at least 50% within the bounding rectangle.
+    // Gather together all elements that are at least 25% within the bounding rectangle.  This
+    // was changed from 50% to 25% for the District Council of Tumby Bay where elements were
+    // joined together with a large number of spaces between.  For example, see the following:
+    //
+    //     https://www.tumbybay.sa.gov.au/webdata/resources/files/Register%20of%20Development%20Listing%202014.pdf
+    //
+    // In this PDF the Certifier was joined with the Property Details producing the following:
+    //
+    //     "District Council of Tumby Bay                Lot 201 Thuruna Road TUMBY BAY"
 
     let intersectingElements: Element[] = []
     for (let element of elements) {
         let intersectingBounds = intersect(element, bounds);
         let intersectingArea = intersectingBounds.width * intersectingBounds.height;
         let elementArea = element.width * element.height;
-        if (elementArea > 0 && intersectingArea * 2 > elementArea && element.text !== ":")
+        if (elementArea > 0 && intersectingArea * 4 > elementArea && element.text !== ":")
             intersectingElements.push(element);
     }
     if (intersectingElements.length === 0)
@@ -412,7 +430,7 @@ function getDownText(elements: Element[], topText: string, rightText: string, bo
 function parseApplicationElements(elements: Element[], startElement: Element, informationUrl: string) {
     // Get the application number.
 
-    let applicationNumber = getDownText(elements, "Document", "Applicant Name/", "Wall Type:", undefined);
+    let applicationNumber = getDownText(elements, "Document", false, "Applicant Name/", "Wall Type:", undefined);
     if (applicationNumber === undefined || applicationNumber === "") {
         let elementSummary = elements.map(element => `[${element.text}]`).join("");
         console.log(`Could not find the application number on the PDF page for the current development application.  The development application will be ignored.  Elements: ${elementSummary}`);
@@ -420,12 +438,9 @@ function parseApplicationElements(elements: Element[], startElement: Element, in
     }
     console.log(`    Found \"${applicationNumber}\".`);
 
-if (applicationNumber === "21/2014/56"){
-    let iiii = 1;
-}
     // Get the address.
 
-    let address = getDownText(elements, "Property Details", undefined, undefined, "Page:");
+    let address = getDownText(elements, "Property Details", true, undefined, undefined, "Page:");
     if (address === undefined)
     {
         let elementSummary = elements.map(element => `[${element.text}]`).join("");
@@ -433,17 +448,42 @@ if (applicationNumber === "21/2014/56"){
         return undefined;
     }
 
+    // Allow for joined together elements (ie. the Certifier joined with the Property Details).
+
+    address = address.replace(/^District Council of Tumby Bay /gi, "").trim();
+
+    // Allow for the "Page:" text in page footers being joined into the address.
+
+    let pageIndex = address.search(/ p\s*a\s*g\s*e\s*:/i);
+    if (pageIndex >= 0)
+        address = address.substring(0, pageIndex);
+
+    if (address === "")
+    {
+        let elementSummary = elements.map(element => `[${element.text}]`).join("");
+        console.log(`Application number ${applicationNumber} will be ignored because the address is blank.  Elements: ${elementSummary}`);
+        return undefined;
+    }
+
     // Get the received date.
 
     let receivedDate: moment.Moment = undefined;
-    let receivedDateText = getDownText(elements, "Received", "Final", undefined, "Page:");
-    if (receivedDateText !== undefined)
-        receivedDate = moment(receivedDateText.trim(), "D/MM/YYYY", true);
+    let receivedDateText = getDownText(elements, "Received", true, "Final", undefined, "Page:");
+    receivedDate = (receivedDateText === undefined) ? moment.invalid() : moment(receivedDateText.trim().substring(0, 10), "D/MM/YYYY", true);
+    if (!receivedDate.isValid()) {
+        receivedDateText = getDownText(elements, "Received", false, "Final", undefined, "Page:");
+        receivedDate = (receivedDateText === undefined) ? moment.invalid() : moment(receivedDateText.trim().substring(0, 10), "D/MM/YYYY", true);
+    }
 
     // Get the description.
 
     let description = getRightText(elements, "Building Type", "Work Type:", "Current Area:");
 
+    // Remove the numeric prefix present in most descriptions.  For example, "60 Shed - Rural".
+
+    if (description !== undefined)
+        description = description.replace(/^\d\d /, "");
+        
     // Construct the resulting application information.
     
     return {
@@ -549,21 +589,13 @@ async function parsePdf(url: string) {
     }
 
     // Parse the development application from each group of elements (ie. a section of the
-    // current page of the PDF document).  If the same application number is encountered a
-    // second time in the same document then this likely indicates the parsing has incorrectly
-    // recognised some of the digits in the application number.  In this case add a suffix to
-    // the application number so it is unique (and so will be inserted into the database later
-    // instead of being ignored).
+    // current page of the PDF document).
 
     for (let applicationElementGroup of applicationElementGroups) {
         let developmentApplication = parseApplicationElements(applicationElementGroup.elements, applicationElementGroup.startElement, url);
-        if (developmentApplication !== undefined) {
-            let suffix = 0;
-            let applicationNumber = developmentApplication.applicationNumber;
-            while (developmentApplications.some(otherDevelopmentApplication => otherDevelopmentApplication.applicationNumber === developmentApplication.applicationNumber))
-                developmentApplication.applicationNumber = `${applicationNumber} (${++suffix})`;  // add a unique suffix
-            developmentApplications.push(developmentApplication);
-        }
+        if (developmentApplication !== undefined)
+            if (!developmentApplications.some(otherDevelopmentApplication => otherDevelopmentApplication.applicationNumber === developmentApplication.applicationNumber))  // avoid duplicates
+                developmentApplications.push(developmentApplication);
     }
 
     return developmentApplications;
@@ -651,7 +683,8 @@ async function main() {
     // if (getRandom(0, 2) === 0)
     //     selectedPdfUrls.reverse();
 
-    for (let pdfUrl of ["https://www.tumbybay.sa.gov.au/webdata/resources/files/Register%20of%20Development%20Listing%202014.pdf"]) {
+    // for (let pdfUrl of ["https://www.tumbybay.sa.gov.au/webdata/resources/files/2016%20Website%20Register%20of%20Development%20Application%20Listing-5.pdf"]) {
+    for (let pdfUrl of pdfUrls) {
         console.log(`Parsing document: ${pdfUrl}`);
         let developmentApplications = await parsePdf(pdfUrl);
         console.log(`Parsed ${developmentApplications.length} development application(s) from document: ${pdfUrl}`);
