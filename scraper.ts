@@ -318,49 +318,6 @@ function getRightText(elements: Element[], topLeftText: string, rightText: strin
     return intersectingElements.map(element => element.text).join(" ").trim().replace(/\s\s+/g, " ");
 }
 
-// Gets the text to the left in a rectangle, where the rectangle is delineated by the positions
-// in which the three specified strings of (case sensitive) text are found.
-
-function getLeftText(elements: Element[], topRightText: string, leftText: string, bottomText: string) {
-    // Construct a bounding rectangle in which the expected text should appear.  Any elements
-    // over 50% within the bounding rectangle will be assumed to be part of the expected text.
-
-    let topRightElement = findElement(elements, topRightText, true, false);
-    let leftElement = (leftText === undefined) ? undefined : findElement(elements, leftText, false, false);
-    let bottomElement = (bottomText === undefined) ? undefined : findElement(elements, bottomText, false, false);
-    if (topRightElement === undefined || leftElement === undefined || bottomElement === undefined)
-        return undefined;
-
-    let x = leftElement.x + leftElement.width;
-    let y = topRightElement.y;
-    let width = topRightElement.x - x;
-    let height = bottomElement.y - y;
-
-    let bounds: Rectangle = { x: x, y: y, width: width, height: height };
-
-    // Gather together all elements that are at least 50% within the bounding rectangle.
-
-    let intersectingElements: Element[] = []
-    for (let element of elements) {
-        let intersectingBounds = intersect(element, bounds);
-        let intersectingArea = intersectingBounds.width * intersectingBounds.height;
-        let elementArea = element.width * element.height;
-        if (elementArea > 0 && intersectingArea * 2 > elementArea && element.text !== ":")
-            intersectingElements.push(element);
-    }
-    if (intersectingElements.length === 0)
-        return undefined;
-
-    // Sort the elements by Y co-ordinate and then by X co-ordinate.
-
-    let elementComparer = (a: Element, b: Element) => (a.y > b.y) ? 1 : ((a.y < b.y) ? -1 : ((a.x > b.x) ? 1 : ((a.x < b.x) ? -1 : 0)));
-    intersectingElements.sort(elementComparer);
-
-    // Join the elements into a single string.
-
-    return intersectingElements.map(element => element.text).join(" ").trim().replace(/\s\s+/g, " ");
-}
-
 // Gets the text downwards in a rectangle, where the rectangle is delineated by the positions in
 // which the three specified strings of (case sensitive) text are found.
 
@@ -483,7 +440,7 @@ function parseApplicationElements(elements: Element[], startElement: Element, in
 
     if (description !== undefined)
         description = description.replace(/^\d\d /, "");
-        
+
     // Construct the resulting application information.
     
     return {
@@ -676,15 +633,14 @@ async function main() {
     // at once because this may use too much memory, resulting in morph.io terminating the current
     // process).
 
-    // let selectedPdfUrls: string[] = [];
-    // selectedPdfUrls.push(pdfUrls.shift());
-    // if (pdfUrls.length > 0)
-    //     selectedPdfUrls.push(pdfUrls[getRandom(0, pdfUrls.length)]);
-    // if (getRandom(0, 2) === 0)
-    //     selectedPdfUrls.reverse();
+    let selectedPdfUrls: string[] = [];
+    selectedPdfUrls.push(pdfUrls.shift());
+    if (pdfUrls.length > 0)
+        selectedPdfUrls.push(pdfUrls[getRandom(0, pdfUrls.length)]);
+    if (getRandom(0, 2) === 0)
+        selectedPdfUrls.reverse();
 
-    // for (let pdfUrl of ["https://www.tumbybay.sa.gov.au/webdata/resources/files/2016%20Website%20Register%20of%20Development%20Application%20Listing-5.pdf"]) {
-    for (let pdfUrl of pdfUrls) {
+    for (let pdfUrl of selectedPdfUrls) {
         console.log(`Parsing document: ${pdfUrl}`);
         let developmentApplications = await parsePdf(pdfUrl);
         console.log(`Parsed ${developmentApplications.length} development application(s) from document: ${pdfUrl}`);
