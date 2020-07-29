@@ -755,7 +755,7 @@ async function main() {
         let pdfUrl = new urlparser.URL(element.attribs.href, DevelopmentApplicationsUrl).href
         if (pdfUrl.toLowerCase().includes("register") && pdfUrl.toLowerCase().includes(".pdf"))
             if (!pdfUrls.some(url => url === pdfUrl))
-                pdfUrls.push(pdfUrl);
+                pdfUrls.unshift(pdfUrl);
     }
 
     // Always parse the most recent PDF file and randomly select one other PDF file to parse.
