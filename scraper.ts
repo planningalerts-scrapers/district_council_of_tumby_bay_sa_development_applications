@@ -17,7 +17,7 @@ import didYouMean, * as didyoumean from "didyoumean2";
 
 sqlite3.verbose();
 
-const DevelopmentApplicationsUrl = "https://www.tumbybay.sa.gov.au/page.aspx?u=140";
+const DevelopmentApplicationsUrl = "https://www.tumbybay.sa.gov.au/services/development-applications";
 const CommentUrl = "mailto:dctumby@tumbybay.sa.gov.au";
 
 const Tolerance = 3;
@@ -751,11 +751,11 @@ async function main() {
     let $ = cheerio.load(body);
 
     let pdfUrls: string[] = [];
-    for (let element of $("div.unityHtmlArticle p a").get()) {
+    for (let element of $("h3.generic-list__title a").get()) {
         let pdfUrl = new urlparser.URL(element.attribs.href, DevelopmentApplicationsUrl).href
         if (pdfUrl.toLowerCase().includes("register") && pdfUrl.toLowerCase().includes(".pdf"))
             if (!pdfUrls.some(url => url === pdfUrl))
-                pdfUrls.push(pdfUrl);
+                pdfUrls.unshift(pdfUrl);
     }
 
     // Always parse the most recent PDF file and randomly select one other PDF file to parse.
